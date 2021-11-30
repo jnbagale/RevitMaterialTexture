@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+<AddIn Type="Application">
+                <Name>MBSTest</Name>
+                <Assembly>RevitMaterialTexture.dll</Assembly>
+                <AddInId>826F2D17-4E37-4B44-B92A-13A72DFD0A44</AddInId>
+                <FullClassName>RevitMaterialTexture.MaterialTextureCmd</FullClassName>
+                <VendorId>WALDRAM</VendorId>
+                <VendorDescription>MBS Software</VendorDescription>
+</AddIn>
+</RevitAddIns>
