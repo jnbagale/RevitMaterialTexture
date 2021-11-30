@@ -74,8 +74,40 @@ namespace RevitMaterialTexture
             string folderPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             string templateImagePath = Path.Combine(folderPath, "TestMaterial.jpg");
 
-            Dictionary<ElementId, Material> faces = new Dictionary<ElementId, Material>();
+            // Delete any previous faces and materials
+            System.Diagnostics.Stopwatch deleteFacesWatch = new System.Diagnostics.Stopwatch();
+            deleteFacesWatch.Start();
 
+            DeletePreviousFaces(document);
+
+            deleteFacesWatch.Stop();
+            System.Windows.Forms.MessageBox.Show("Delete previous faces and materials took " + deleteFacesWatch.ElapsedMilliseconds / 1000.0 + " seconds");
+
+
+            // Create new faces and materials
+            System.Diagnostics.Stopwatch createFacesWatch = new System.Diagnostics.Stopwatch();
+            createFacesWatch.Start();
+
+            Dictionary<ElementId, Material> faces = CreateFacesAndMaterials(document, totalFaces, folderPath, templateImagePath);
+
+            createFacesWatch.Stop();
+            System.Windows.Forms.MessageBox.Show("Create new faces and materials took " + createFacesWatch.ElapsedMilliseconds / 1000.0 + " seconds");
+
+
+            System.Diagnostics.Stopwatch texturePropertiesWatch = new System.Diagnostics.Stopwatch();
+            texturePropertiesWatch.Start();
+
+            ApplyTextureProperties(document, faces, folderPath);
+
+            texturePropertiesWatch.Stop();
+
+            System.Windows.Forms.MessageBox.Show("Applying Texture Material properties took " + texturePropertiesWatch.ElapsedMilliseconds / 1000.0 + " seconds");
+
+            return Result.Succeeded;
+        }
+
+        private void DeletePreviousFaces(Document document)
+        {
             Transaction transaction = new Transaction(document, "delete old faces");
             transaction.Start();
 
@@ -101,14 +133,17 @@ namespace RevitMaterialTexture
             document.Delete(idsToDelete);
 
             document.Regenerate();
+
             transaction.Commit();
+            transaction.Dispose();
+        }
 
-            commandData.Application.ActiveUIDocument.RefreshActiveView();
+        private Dictionary<ElementId, Material> CreateFacesAndMaterials(Document document, int totalFaces, string folderPath, string templateImagePath)
+        {
+            Dictionary<ElementId, Material> faces = new Dictionary<ElementId, Material>();
 
-            transaction = new Transaction(document, "create faces and materials");
+            Transaction transaction = new Transaction(document, "create faces and materials");
             transaction.Start();
-
-            System.Windows.Forms.Application.DoEvents();
 
             for (int i = 0; i < totalFaces; i++)
             {
@@ -154,15 +189,15 @@ namespace RevitMaterialTexture
                 faces.Add(shape.Id, material);
             }
 
-            // commit is needed before material properties are applied
-            // so that the faces can be queried as DirectShape
             TransactionStatus status = transaction.Commit();
 
-            transaction = new Transaction(document, "save material");
-            transaction.Start();
+            return faces;
+        }
 
-            System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
-            watch.Start();
+        private void ApplyTextureProperties(Document document, Dictionary<ElementId, Material> faces, string folderPath)
+        {
+            Transaction transaction = new Transaction(document, "save material");
+            transaction.Start();
 
             foreach (var kvp in faces)
             {
@@ -185,14 +220,8 @@ namespace RevitMaterialTexture
                 SetTextureProperties(material, document, materialName, textureProperties);
             }
 
-            status = transaction.Commit();
+            transaction.Commit();
             transaction.Dispose();
-
-            watch.Stop();
-
-            System.Windows.Forms.MessageBox.Show("Texture Material properties applied in " + watch.ElapsedMilliseconds / 1000.0 + " seconds");
-
-            return Result.Succeeded;
         }
 
         private static AppearanceAssetElement genericAsset;
