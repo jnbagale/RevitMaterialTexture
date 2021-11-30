@@ -7,10 +7,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using Microsoft.VisualBasic;
+
 
 namespace RevitMaterialTexture
 {
-    [TransactionAttribute(TransactionMode.Manual)]
+    [Transaction(TransactionMode.Manual)]
     public class MaterialTextureCmd : IExternalApplication
     {
         static UIControlledApplication _cachedUiCtrApp;
@@ -54,45 +56,59 @@ namespace RevitMaterialTexture
         }
     }
 
-    [TransactionAttribute(TransactionMode.Manual)]
+    [Transaction(TransactionMode.Manual)]
+    [Regeneration(RegenerationOption.Manual)]
+
     public class MaterialTexture : IExternalCommand
-    { 
+    {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
-            int totalFaces = 1423;
+            string input = Interaction.InputBox("Enter the number of materials/faces to create", "Material Texture Test", "100");
+
+            int totalFaces;
+
+            int.TryParse(input, out totalFaces);
+
             Document document = commandData.Application.ActiveUIDocument.Document;
-                       
+
             string folderPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             string templateImagePath = Path.Combine(folderPath, "TestMaterial.jpg");
 
             Dictionary<ElementId, Material> faces = new Dictionary<ElementId, Material>();
 
-            Transaction transaction = new Transaction(document, "create faces");
+            Transaction transaction = new Transaction(document, "delete old faces");
             transaction.Start();
 
             // Delete the any previous faces, materials and appearance asset elements
 
-            HashSet<string> namesToCheck = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            for (int i = 0; i < totalFaces; i++)
-            {
-                namesToCheck.Add($"Test_Face_{i}");
-            }
+            string namesToCheck = $"Test_Face_";
 
             var collector = new FilteredElementCollector(document).WhereElementIsNotElementType();
 
             List<ElementId> idsToDelete = new List<ElementId>();
 
             var genericModelIds = collector.OfCategory(BuiltInCategory.OST_GenericModel).ToElements().
-                Where(e => namesToCheck.Contains(e.Name)).Select(e => e.Id).ToList();
+                Where(e => e.Name.IndexOf(namesToCheck, StringComparison.OrdinalIgnoreCase) >= 0).Select(e => e.Id).ToList();
             var materialIds = collector.OfCategory(BuiltInCategory.OST_Materials).
-                Where(e => namesToCheck.Contains(e.Name)).Select(e => e.Id).ToList();
+                Where(e => e.Name.IndexOf(namesToCheck, StringComparison.OrdinalIgnoreCase) >= 0).Select(e => e.Id).ToList();
             var assetIds = collector.OfClass(typeof(AppearanceAssetElement)).
-                Where(e => namesToCheck.Contains(e.Name)).Select(e => e.Id).ToList();
+                Where(e => e.Name.IndexOf(namesToCheck, StringComparison.OrdinalIgnoreCase) >= 0).Select(e => e.Id).ToList();
 
             if (genericModelIds != null) idsToDelete.AddRange(genericModelIds);
             if (materialIds != null) idsToDelete.AddRange(materialIds);
             if (assetIds != null) idsToDelete.AddRange(assetIds);
+
+            document.Delete(idsToDelete);
+
+            document.Regenerate();
+            transaction.Commit();
+
+            commandData.Application.ActiveUIDocument.RefreshActiveView();
+
+            transaction = new Transaction(document, "create faces and materials");
+            transaction.Start();
+
+            System.Windows.Forms.Application.DoEvents();
 
             for (int i = 0; i < totalFaces; i++)
             {
@@ -148,14 +164,14 @@ namespace RevitMaterialTexture
             System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
             watch.Start();
 
-            foreach(var kvp in faces)
+            foreach (var kvp in faces)
             {
                 Material material = kvp.Value;
 
                 string materialName = material.Name;
 
                 Dictionary<string, object> textureProperties = new Dictionary<string, object>();
-                textureProperties.Add("generic_transparency", 5); 
+                textureProperties.Add("generic_transparency", 5);
                 textureProperties.Add("UnifiedBitmap.TextureRealWorldScaleX", 10d);
                 textureProperties.Add("UnifiedBitmap.TextureRealWorldScaleY", 10d);
                 textureProperties.Add("UnifiedBitmap.UnifiedbitmapBitmap", Path.Combine(folderPath, materialName + ".jpg"));
@@ -188,43 +204,43 @@ namespace RevitMaterialTexture
                 Material mat = material as Material;
                 Document doc = document as Document;
 
-                using (AppearanceAssetEditScope editScope = new AppearanceAssetEditScope(doc))
+                if (mat.AppearanceAssetId == ElementId.InvalidElementId)
                 {
-                    if (mat.AppearanceAssetId == ElementId.InvalidElementId)
+                    // Not checking if the element exists as they are deleted before hand
+                    AppearanceAssetElement assetElement = null; // = (AppearanceAssetElement)(new FilteredElementCollector(doc).OfClass(typeof(AppearanceAssetElement)).Where(a => a.Name == matname).FirstOrDefault());
+
+                    if (assetElement == null) // Avoid copying the template asset per material
                     {
-                        // Check if the assetElement exists
-                        AppearanceAssetElement assetElement = null; // = (AppearanceAssetElement)(new FilteredElementCollector(doc).OfClass(typeof(AppearanceAssetElement)).Where(a => a.Name == matname).FirstOrDefault());
-
-                        if (assetElement == null) // Avoid copying the template asset per material
+                        try
                         {
-                            try
+                            if (genericAsset == null)
                             {
-                                if (genericAsset == null)
-                                {
-                                    genericAsset = new FilteredElementCollector(doc).OfClass(typeof(AppearanceAssetElement))
-                                    .ToElements()
-                                    .Cast<AppearanceAssetElement>().FirstOrDefault(i => i.Name.Contains("Generic"));
-                                }
-
-                                if (genericAsset != null)
-                                {
-                                    assetElement = genericAsset.Duplicate(matname);
-                                }
+                                genericAsset = new FilteredElementCollector(doc).OfClass(typeof(AppearanceAssetElement))
+                                .ToElements()
+                                .Cast<AppearanceAssetElement>().FirstOrDefault(i => i.Name.Contains("Generic"));
                             }
-                            catch 
-                            {
-                                // it may be faster to let it crash in case the asset with the same name already exists
-                                // than to check for it every time. as they are deleted in advance anyway
 
-                                assetElement = (AppearanceAssetElement)(new FilteredElementCollector(doc).OfClass(typeof(AppearanceAssetElement)).Where(a => a.Name == matname).FirstOrDefault());
+                            if (genericAsset != null)
+                            {
+                                assetElement = genericAsset.Duplicate(matname);
                             }
                         }
+                        catch
+                        {
+                            // it may be faster to let it crash in case the asset with the same name already exists
+                            // than to check for it every time. as they are deleted in advance anyway
 
-                        if (assetElement == null) throw new Exception("Could not find Default AppearanceAssetElement to duplicate its Asset");
-
-                        mat.AppearanceAssetId = assetElement.Id;
+                            assetElement = (AppearanceAssetElement)(new FilteredElementCollector(doc).OfClass(typeof(AppearanceAssetElement)).Where(a => a.Name == matname).FirstOrDefault());
+                        }
                     }
 
+                    if (assetElement == null) throw new Exception("Could not find Default AppearanceAssetElement to duplicate its Asset");
+
+                    mat.AppearanceAssetId = assetElement.Id;
+                }
+
+                using (AppearanceAssetEditScope editScope = new AppearanceAssetEditScope(doc))
+                {
                     Asset editableAsset = editScope.Start(mat.AppearanceAssetId);
 
                     if (editableAsset != null)
